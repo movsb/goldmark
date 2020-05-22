@@ -16,7 +16,13 @@ type Config struct {
 	HardWraps bool
 	XHTML     bool
 	Unsafe    bool
+
+	ImageDataSrc  bool
+	ImageSizeFunc ImageSizeFunc
 }
+
+// ImageSizeFunc ...
+type ImageSizeFunc func(path string) (int, int)
 
 // NewConfig returns a new Config with defaults.
 func NewConfig() Config {
@@ -25,6 +31,9 @@ func NewConfig() Config {
 		HardWraps: false,
 		XHTML:     false,
 		Unsafe:    false,
+
+		ImageDataSrc:  false,
+		ImageSizeFunc: nil,
 	}
 }
 
@@ -39,6 +48,10 @@ func (c *Config) SetOption(name renderer.OptionName, value interface{}) {
 		c.Unsafe = value.(bool)
 	case optTextWriter:
 		c.Writer = value.(Writer)
+	case optImageDataSrc:
+		c.ImageDataSrc = value.(bool)
+	case optImageSizeFunc:
+		c.ImageSizeFunc = value.(ImageSizeFunc)
 	}
 }
 
@@ -138,6 +151,53 @@ func WithUnsafe() interface {
 	Option
 } {
 	return &withUnsafe{}
+}
+
+// ImageDataSrc is an option name used in WithImageDataSrc.
+const optImageDataSrc renderer.OptionName = "ImageDataSrc"
+
+type withImageDataSrc struct {
+}
+
+func (o *withImageDataSrc) SetConfig(c *renderer.Config) {
+	c.Options[optImageDataSrc] = true
+}
+
+func (o *withImageDataSrc) SetHTMLOption(c *Config) {
+	c.ImageDataSrc = true
+}
+
+// WithImageDataSrc is a functional option that renders images as data-src.
+func WithImageDataSrc() interface {
+	renderer.Option
+	Option
+} {
+	return &withImageDataSrc{}
+}
+
+// ImageSizeFunc is an option name used in WithImageSizeFunc.
+const optImageSizeFunc renderer.OptionName = "ImageSizeFunc"
+
+type withImageSizeFunc struct {
+	imageSizeFunc ImageSizeFunc
+}
+
+func (o *withImageSizeFunc) SetConfig(c *renderer.Config) {
+	c.Options[optImageSizeFunc] = o.imageSizeFunc
+}
+
+func (o *withImageSizeFunc) SetHTMLOption(c *Config) {
+	c.ImageSizeFunc = o.imageSizeFunc
+}
+
+// WithImageSizeFunc is a functional option that renders images with dimention.
+func WithImageSizeFunc(f ImageSizeFunc) interface {
+	renderer.Option
+	Option
+} {
+	return &withImageSizeFunc{
+		imageSizeFunc: f,
+	}
 }
 
 // A Renderer struct is an implementation of renderer.NodeRenderer that renders
@@ -559,7 +619,11 @@ func (r *Renderer) renderImage(w util.BufWriter, source []byte, node ast.Node, e
 		return ast.WalkContinue, nil
 	}
 	n := node.(*ast.Image)
-	_, _ = w.WriteString("<img src=\"")
+	if r.ImageDataSrc {
+		_, _ = w.WriteString("<img data-src=\"")
+	} else {
+		_, _ = w.WriteString("<img src=\"")
+	}
 	if r.Unsafe || !IsDangerousURL(n.Destination) {
 		_, _ = w.Write(util.EscapeHTML(util.URLEscape(n.Destination, true)))
 	}
@@ -570,6 +634,15 @@ func (r *Renderer) renderImage(w util.BufWriter, source []byte, node ast.Node, e
 		_, _ = w.WriteString(` title="`)
 		r.Writer.Write(w, n.Title)
 		_ = w.WriteByte('"')
+	}
+	if r.ImageSizeFunc != nil {
+		width, height := r.ImageSizeFunc(string(n.Destination))
+		if width > 0 && height > 0 {
+			_, _ = w.WriteString(fmt.Sprintf(
+				` style="width: %dpx; height: %dpx;"`,
+				width, height,
+			))
+		}
 	}
 	if n.Attributes() != nil {
 		RenderAttributes(w, n, ImageAttributeFilter)
