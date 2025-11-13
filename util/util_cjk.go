@@ -179,6 +179,12 @@ var cjkUnifiedIdeographsExtensionG = &unicode.RangeTable{
 
 // IsEastAsianWideRune returns trhe if the given rune is an east asian wide character, otherwise false.
 func IsEastAsianWideRune(r rune) bool {
+	// https://github.com/yuin/goldmark/issues/534
+	switch r {
+	case '！', '；', '？', '，', '。':
+		return true
+	}
+
 	return unicode.Is(unicode.Hiragana, r) ||
 		unicode.Is(unicode.Katakana, r) ||
 		unicode.Is(unicode.Han, r) ||
